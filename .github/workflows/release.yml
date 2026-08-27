@@ -1,0 +1,28 @@
+# Moves the floating v1 tag to whatever was just released, so
+# `uses: alexander-morris/agent-ready-action@v1` follows the latest v1.x.
+name: Release
+
+on:
+  release:
+    types: [published]
+
+permissions:
+  contents: write
+
+jobs:
+  retag:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Point v1 at this release
+        run: |
+          TAG="${{ github.event.release.tag_name }}"
+          MAJOR="$(echo "$TAG" | cut -d. -f1)"
+          git config user.name  'github-actions[bot]'
+          git config user.email 'github-actions[bot]@users.noreply.github.com'
+          git tag -f "$MAJOR" "$TAG"
+          git push origin -f "refs/tags/$MAJOR"
+          echo "$MAJOR now points at $TAG"

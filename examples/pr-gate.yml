@@ -1,0 +1,21 @@
+# Score on every pull request and fail if the site drops below level 3.
+# Also leaves the score as a PR comment.
+name: Agent Readiness gate
+
+on:
+  pull_request:
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  gate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: alexander-morris/agent-ready-action@v1
+        with:
+          url: https://example.com
+          mode: scan          # report only, never writes
+          fail-below: 3

@@ -1,0 +1,217 @@
+name: 'Agent Ready'
+description: "Score a site's AI Agent Readiness and open a PR that fixes what's failing — generated inside an isolated Tenki sandbox."
+author: 'Alexander Morris'
+branding:
+  icon: 'activity'
+  color: 'orange'
+
+inputs:
+  url:
+    description: 'The website URL to score (e.g. https://example.com). Defaults to the homepage in your repo config if omitted.'
+    required: true
+
+  site-dir:
+    description: 'Directory holding the site''s servable root (public/, static/, dist/ ...). Auto-detected when empty.'
+    required: false
+    default: ''
+
+  mode:
+    description: 'scan | fix | pr. "scan" reports only. "fix" writes files into the working tree. "pr" writes files and opens a pull request.'
+    required: false
+    default: 'pr'
+
+  sandbox:
+    description: 'auto | tenki | none. "auto" uses a Tenki sandbox when TENKI_API_KEY is set and falls back to the GitHub runner. "tenki" hard-requires it. "none" always runs on the runner.'
+    required: false
+    default: 'auto'
+
+  target-level:
+    description: 'max | next. "max" applies every safe fixer available. "next" applies only what is needed to climb one readiness level.'
+    required: false
+    default: 'max'
+
+  fail-below:
+    description: 'Fail the job if the readiness level is below this number (0-5). Empty disables the gate.'
+    required: false
+    default: ''
+
+  verify:
+    description: 'After applying fixes, serve the patched site from the Tenki sandbox on a public preview URL and re-score it, to prove the fixes work. Requires the Tenki sandbox.'
+    required: false
+    default: 'true'
+
+  only:
+    description: 'Comma-separated check ids to fix (e.g. robotsTxt,sitemap,llmsTxt). Empty means all fixable checks.'
+    required: false
+    default: ''
+
+  skip:
+    description: 'Comma-separated check ids to never fix.'
+    required: false
+    default: ''
+
+  site-name:
+    description: 'Human-readable site name used in generated artifacts. Defaults to the repository name.'
+    required: false
+    default: ''
+
+  site-description:
+    description: 'One-line site description used in generated artifacts (llms.txt, MCP/A2A cards).'
+    required: false
+    default: ''
+
+  ai-policy:
+    description: 'open | balanced | closed. Controls the Content-Signal directives and the allow/disallow rule written for AI crawlers. balanced = crawling and agent answers allowed, model training not.'
+    required: false
+    default: 'balanced'
+
+  a2a-endpoint:
+    description: 'URL of your A2A agent endpoint, if you have one. Enables a real A2A Agent Card. Falls back to mcp-endpoint.'
+    required: false
+    default: ''
+
+  mcp-endpoint:
+    description: 'URL of your MCP server, if you have one. Enables a real MCP Server Card instead of a documented TODO.'
+    required: false
+    default: ''
+
+  api-docs-url:
+    description: 'URL of your API documentation, used in the RFC 9727 api-catalog and Link headers.'
+    required: false
+    default: ''
+
+  openapi-url:
+    description: 'URL of your OpenAPI/Swagger document, used as service-desc in the api-catalog.'
+    required: false
+    default: ''
+
+  branch:
+    description: 'Branch name for the pull request.'
+    required: false
+    default: 'agent-ready/auto-fixes'
+
+  pr-title:
+    description: 'Title of the opened pull request.'
+    required: false
+    default: 'Improve AI agent readiness'
+
+  labels:
+    description: 'Comma-separated labels to apply to the pull request.'
+    required: false
+    default: 'agent-ready'
+
+  commit-message:
+    description: 'Commit message for the generated changes.'
+    required: false
+    default: 'chore(agent-ready): add agent-readiness artifacts'
+
+  github-token:
+    description: 'Token used to push the branch and open the PR.'
+    required: false
+    default: ${{ github.token }}
+
+  scanner-url:
+    description: 'Agent Readiness scanner endpoint.'
+    required: false
+    default: 'https://isitagentready.com/api/scan'
+
+  license-key:
+    description: 'Reserved for the hosted tier. Not required; the open-source action is fully functional without it.'
+    required: false
+    default: ''
+
+outputs:
+  level:
+    description: 'Numeric readiness level (0-5) before any fixes.'
+    value: ${{ steps.agent-ready.outputs.level }}
+  level-name:
+    description: 'Readiness level name before any fixes (e.g. "Bot-Aware").'
+    value: ${{ steps.agent-ready.outputs.level-name }}
+  level-after:
+    description: 'Verified readiness level after fixes, when verification ran. Empty otherwise.'
+    value: ${{ steps.agent-ready.outputs.level-after }}
+  passed:
+    description: 'Number of checks passing before fixes.'
+    value: ${{ steps.agent-ready.outputs.passed }}
+  failed:
+    description: 'Number of checks failing before fixes.'
+    value: ${{ steps.agent-ready.outputs.failed }}
+  changed-files:
+    description: 'Newline-separated list of files written.'
+    value: ${{ steps.agent-ready.outputs.changed-files }}
+  pr-url:
+    description: 'URL of the opened pull request, if one was opened.'
+    value: ${{ steps.agent-ready.outputs.pr-url }}
+  report:
+    description: 'Path to the Markdown report on disk.'
+    value: ${{ steps.agent-ready.outputs.report }}
+  json:
+    description: 'Path to the full JSON result on disk.'
+    value: ${{ steps.agent-ready.outputs.json }}
+  sandbox:
+    description: 'Which sandbox actually ran the fixers: tenki or runner.'
+    value: ${{ steps.agent-ready.outputs.sandbox }}
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Install Tenki CLI
+      shell: bash
+      env:
+        AGENT_READY_SANDBOX: ${{ inputs.sandbox }}
+      run: |
+        # The env context is not reliably available to a composite step's `if`,
+        # so the skip decision lives here instead.
+        if [ "$AGENT_READY_SANDBOX" = "none" ]; then
+          echo "sandbox: none — skipping the Tenki CLI."
+          exit 0
+        fi
+        if [ -z "${TENKI_API_KEY:-}" ]; then
+          echo "No TENKI_API_KEY in the environment — skipping the Tenki CLI."
+          echo "The fixers will run on this runner instead."
+          exit 0
+        fi
+        if command -v tenki >/dev/null 2>&1; then
+          echo "tenki already on PATH: $(tenki --version 2>/dev/null || true)"
+          exit 0
+        fi
+
+        TENKI_INSTALL_DIR="$HOME/.tenki/bin"
+        mkdir -p "$TENKI_INSTALL_DIR"
+        if TENKI_INSTALL_DIR="$TENKI_INSTALL_DIR" bash -c 'curl -fsSL https://tenki.cloud/install.sh | bash'; then
+          echo "$TENKI_INSTALL_DIR" >> "$GITHUB_PATH"
+          echo "Installed the Tenki CLI into $TENKI_INSTALL_DIR"
+        else
+          # Not fatal: src/index.js falls back to the runner unless sandbox: tenki.
+          echo "::warning::Could not install the Tenki CLI; falling back to the runner."
+        fi
+
+    - name: Run agent-ready
+      id: agent-ready
+      shell: bash
+      env:
+        INPUT_URL: ${{ inputs.url }}
+        INPUT_SITE_DIR: ${{ inputs.site-dir }}
+        INPUT_MODE: ${{ inputs.mode }}
+        INPUT_SANDBOX: ${{ inputs.sandbox }}
+        INPUT_TARGET_LEVEL: ${{ inputs.target-level }}
+        INPUT_FAIL_BELOW: ${{ inputs.fail-below }}
+        INPUT_VERIFY: ${{ inputs.verify }}
+        INPUT_ONLY: ${{ inputs.only }}
+        INPUT_SKIP: ${{ inputs.skip }}
+        INPUT_SITE_NAME: ${{ inputs.site-name }}
+        INPUT_SITE_DESCRIPTION: ${{ inputs.site-description }}
+        INPUT_AI_POLICY: ${{ inputs.ai-policy }}
+        INPUT_A2A_ENDPOINT: ${{ inputs.a2a-endpoint }}
+        INPUT_MCP_ENDPOINT: ${{ inputs.mcp-endpoint }}
+        INPUT_API_DOCS_URL: ${{ inputs.api-docs-url }}
+        INPUT_OPENAPI_URL: ${{ inputs.openapi-url }}
+        INPUT_BRANCH: ${{ inputs.branch }}
+        INPUT_PR_TITLE: ${{ inputs.pr-title }}
+        INPUT_LABELS: ${{ inputs.labels }}
+        INPUT_COMMIT_MESSAGE: ${{ inputs.commit-message }}
+        INPUT_GITHUB_TOKEN: ${{ inputs.github-token }}
+        INPUT_SCANNER_URL: ${{ inputs.scanner-url }}
+        INPUT_LICENSE_KEY: ${{ inputs.license-key }}
+        AGENT_READY_ACTION_PATH: ${{ github.action_path }}
+      run: node "${{ github.action_path }}/src/index.js"

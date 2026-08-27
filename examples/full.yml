@@ -1,0 +1,49 @@
+# Everything switched on, for a site that actually has an MCP server and an API.
+# Runs the fixers in a Tenki sandbox and verifies the result on a preview URL
+# before opening the PR.
+name: Agent Ready (full)
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '0 8 * * 1'
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  agent-ready:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: alexander-morris/agent-ready-action@v1
+        id: readiness
+        env:
+          TENKI_API_KEY: ${{ secrets.TENKI_API_KEY }}
+        with:
+          url: https://example.com
+          site-dir: public
+          sandbox: tenki        # require the sandbox; fail loudly if unavailable
+          verify: true
+
+          ai-policy: balanced
+          site-name: Example
+          site-description: What Example does, in one line.
+
+          mcp-endpoint: https://example.com/mcp
+          a2a-endpoint: https://example.com/a2a
+          openapi-url: /openapi.json
+          api-docs-url: https://example.com/docs/api
+
+          branch: agent-ready/weekly
+          pr-title: 'Weekly agent readiness pass'
+          labels: agent-ready,automated
+
+      - name: Report
+        run: |
+          echo "Before: level ${{ steps.readiness.outputs.level }} (${{ steps.readiness.outputs.level-name }})"
+          echo "After:  level ${{ steps.readiness.outputs.level-after }}"
+          echo "Ran in: ${{ steps.readiness.outputs.sandbox }}"
+          echo "PR:     ${{ steps.readiness.outputs.pr-url }}"

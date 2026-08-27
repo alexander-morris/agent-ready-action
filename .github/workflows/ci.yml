@@ -1,0 +1,118 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: Tests (node ${{ matrix.node }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        node: ['20', '22']
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+
+      - name: Offline test suite
+        run: npm test
+
+      - name: Syntax-check every source file
+        run: |
+          find src bin -name '*.js' -print0 | xargs -0 -n1 node --check
+          echo "all source files parse"
+
+      - name: Shell scripts parse
+        run: bash -n install.sh
+
+      - name: No dependencies crept in
+        run: |
+          if [ -s package-lock.json ] || [ -d node_modules ]; then
+            echo "::error::this action is dependency-free on purpose"
+            exit 1
+          fi
+          node -e 'const p=require("./package.json");if(Object.keys(p.dependencies||{}).length){console.log("::error::dependencies found in package.json");process.exit(1)}'
+
+  installer:
+    name: Installer writes a valid workflow
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Run the installer in a scratch repo
+        run: |
+          mkdir -p /tmp/scratch/public && cd /tmp/scratch
+          git init -q .
+          echo 'export default {};' > astro.config.mjs
+          bash "$GITHUB_WORKSPACE/install.sh" --url https://example.com --schedule weekly --yes
+          test -f .github/workflows/agent-ready.yml
+
+      - name: The generated workflow is valid YAML
+        run: |
+          node -e '
+            const fs = require("node:fs");
+            const text = fs.readFileSync("/tmp/scratch/.github/workflows/agent-ready.yml", "utf8");
+            for (const key of ["name:", "on:", "jobs:", "runs-on:", "uses: actions/checkout", "url: https://example.com"]) {
+              if (!text.includes(key)) { console.log(`::error::generated workflow is missing ${key}`); process.exit(1); }
+            }
+            console.log("generated workflow looks right");
+          '
+
+  action:
+    name: The action runs end to end
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build a throwaway site to fix
+        run: |
+          mkdir -p fixture/public/about
+          echo '<!doctype html><html><head><title>Fixture</title></head><body><h1>Fixture</h1><a href="/about">About</a></body></html>' > fixture/public/index.html
+          echo '<!doctype html><html><head><title>About</title></head><body><h1>About</h1><p>Hi.</p></body></html>' > fixture/public/about/index.html
+
+      # example.com scores 0, so this exercises every fixer.
+      - uses: ./
+        id: run
+        with:
+          url: https://example.com
+          site-dir: fixture/public
+          mode: fix
+          sandbox: none
+
+      - name: Check what it produced
+        run: |
+          test -f fixture/public/robots.txt   || { echo "::error::no robots.txt"; exit 1; }
+          test -f fixture/public/sitemap.xml  || { echo "::error::no sitemap.xml"; exit 1; }
+          test -f fixture/public/llms.txt     || { echo "::error::no llms.txt"; exit 1; }
+          test -f fixture/public/index.md     || { echo "::error::no homepage markdown twin"; exit 1; }
+          test -f fixture/public/_headers     || { echo "::error::no _headers"; exit 1; }
+          test -f fixture/public/.well-known/agent-skills/index.json || { echo "::error::no skills index"; exit 1; }
+          echo "level was ${{ steps.run.outputs.level }} (${{ steps.run.outputs.level-name }})"
+          echo "sandbox: ${{ steps.run.outputs.sandbox }}"
+
+      - name: Rerunning changes nothing
+        uses: ./
+        id: rerun
+        with:
+          url: https://example.com
+          site-dir: fixture/public
+          mode: fix
+          sandbox: none
+
+      - name: The second run must be a no-op
+        run: |
+          if [ -n "${{ steps.rerun.outputs.changed-files }}" ]; then
+            echo "::error::the fixers are not idempotent:"
+            echo "${{ steps.rerun.outputs.changed-files }}"
+            exit 1
+          fi
+          echo "idempotent"

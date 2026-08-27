@@ -1,0 +1,35 @@
+# Several sites in one repository, scored in parallel, each with its own PR.
+name: Agent Ready (monorepo)
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '0 8 * * 1'
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  agent-ready:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - url: https://example.com
+            dir: apps/marketing/public
+            branch: agent-ready/marketing
+          - url: https://docs.example.com
+            dir: apps/docs/static
+            branch: agent-ready/docs
+    steps:
+      - uses: actions/checkout@v4
+      - uses: alexander-morris/agent-ready-action@v1
+        env:
+          TENKI_API_KEY: ${{ secrets.TENKI_API_KEY }}
+        with:
+          url: ${{ matrix.url }}
+          site-dir: ${{ matrix.dir }}
+          branch: ${{ matrix.branch }}
+          pr-title: "Agent readiness: ${{ matrix.url }}"
