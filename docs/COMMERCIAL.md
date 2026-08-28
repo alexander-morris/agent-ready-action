@@ -36,7 +36,7 @@ repository:
 
 | Path | What it does |
 |---|---|
-| `scripts/migrations/085_agent_ready.sql` | `agent_ready_licenses`, `agent_ready_usage` |
+| `scripts/migrations/136_agent_ready.sql` | `agent_ready_licenses`, `agent_ready_usage` |
 | `src/components/agent-ready/plans.ts` | plan definitions and prices |
 | `src/components/agent-ready/licenses.ts` | key minting, hashing, entitlement, quota |
 | `src/app/api/agent-ready/scan` | the metered proxy — the revenue mechanic |
