@@ -162,11 +162,12 @@ Without a key, everything runs on the GitHub runner and the PR simply omits the 
 | `labels` | `agent-ready` | Comma-separated PR labels. |
 | `commit-message` | `chore(agent-ready): …` | Commit message. |
 | `github-token` | `github.token` | Token used to push and open the PR. |
-| `scanner-url` | isitagentready.com | Override the scanner endpoint. |
+| `license-key` | — | Agent Ready key. Raises the scan allowance, turns on history and drift alerts. Also read from `AGENT_READY_KEY`. |
+| `scanner-url` | metered endpoint | Where scans are scored. Set to `https://isitagentready.com/api/scan` to skip metering. |
 
 ## Outputs
 
-`level` · `level-name` · `level-after` · `passed` · `failed` · `changed-files` · `pr-url` · `report` · `json` · `sandbox`
+`level` · `level-name` · `level-after` · `passed` · `failed` · `changed-files` · `pr-url` · `report` · `json` · `sandbox` · `plan` · `quota-used` · `quota-limit` · `quota-remaining`
 
 ```yaml
 - uses: alexander-morris/agent-ready-action@v1
@@ -214,6 +215,40 @@ with:
 ```
 
 More in [examples/](examples/).
+
+---
+
+## Pricing
+
+The action is free. The **scan** is metered, and that's what funds it.
+
+| | Free | Pro | Team |
+|---|---|---|---|
+| Price | $0 | $19/mo | $99/mo |
+| Scans per month | 50 | 5,000 | 25,000 |
+| All fixers and all checks | ✅ | ✅ | ✅ |
+| Score history | — | 90 days | Full |
+| Drift alerts | — | ✅ | ✅ |
+| Unlimited sites, fleet dashboard | — | — | ✅ |
+
+A weekly run with sandbox verification uses about 8 scans a month, so the free
+tier covers a site comfortably. No fixer, check, or output is behind the paywall —
+what you buy is volume and the things a stateless action cannot do: remember last
+month's score, notice a drop, and show you thirty domains at once.
+
+```yaml
+with:
+  url: https://example.com
+  license-key: ${{ secrets.AGENT_READY_KEY }}   # optional
+```
+
+[Get a key →](https://mitosislabs.ai/agent-ready) · full details in [PRICING.md](PRICING.md)
+
+**Two things worth knowing up front.** Metering never breaks your CI — if the
+endpoint is unreachable the action falls back to the public checker on its own.
+And opting out is one supported line, `scanner-url: https://isitagentready.com/api/scan`,
+which skips metering entirely. This is open source; a paywall that only worked on
+people who hadn't read the source wouldn't be worth having.
 
 ---
 
@@ -268,4 +303,9 @@ See [CONTRIBUTING.md](CONTRIBUTING.md). New fixers are a single file in `src/fix
 
 ## License
 
-MIT. Free to use, fork and run. If you're deploying this across a fleet of sites and want managed runs, hosted history, or support, see [docs/COMMERCIAL.md](docs/COMMERCIAL.md).
+[PolyForm Shield 1.0.0](LICENSE) from v1.1.0 onward: free for any purpose,
+including commercial and internal use at any scale, with one restriction — you
+may not use it to build a competing product. v1.0.0 was MIT and stays MIT; see
+[LICENSE-HISTORY.md](LICENSE-HISTORY.md).
+
+Different terms, or a fleet deployment that needs support: a@mitosislabs.ai

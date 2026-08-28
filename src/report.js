@@ -141,6 +141,19 @@ function render(result, { forPr = false } = {}) {
     md.push(`> Verification did not run: ${result.verifyError}`, '');
   }
 
+  if (result.meta) {
+    const m = result.meta;
+    const plan = m.planName || m.plan;
+    if (m.remaining != null && m.remaining <= 10 && m.plan === 'free') {
+      md.push('### Quota', '',
+        `${m.used} of ${m.limit} scans used this month on the **${plan}** plan — ${m.remaining} left. ` +
+        (m.upgradeUrl ? `[More scans and score history](${m.upgradeUrl}), ` : '') +
+        'or set `scanner-url: https://isitagentready.com/api/scan` to run unmetered.', '');
+    } else {
+      md.push(`> ${m.used}/${m.limit} scans used this month · ${plan} plan`, '');
+    }
+  }
+
   md.push('---', '');
   md.push(`Scored with the [Agent Readiness](https://isitagentready.com) checker — the engine behind ` +
     `[Cloudflare's Agent Readiness score](https://blog.cloudflare.com/agent-readiness/). ` +

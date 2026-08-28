@@ -111,12 +111,22 @@ inputs:
     default: ${{ github.token }}
 
   scanner-url:
-    description: 'Agent Readiness scanner endpoint.'
+    description: >-
+      Scanner endpoint. The default is the metered Mitosis Labs endpoint, which
+      proxies the public checker and counts the scan against a free monthly
+      allowance (50 per GitHub org) or your license key. Set it to
+      https://isitagentready.com/api/scan to call the public checker directly and
+      skip metering entirely. If the metered endpoint is ever unreachable the
+      action falls back to the public checker on its own, so this never breaks CI.
     required: false
-    default: 'https://isitagentready.com/api/scan'
+    default: 'https://mitosislabs.ai/api/agent-ready/scan'
 
   license-key:
-    description: 'Reserved for the hosted tier. Not required; the open-source action is fully functional without it.'
+    description: >-
+      Agent Ready license key (ar_live_...). Raises the monthly scan allowance and
+      turns on score history and drift alerts. Not required — every fixer and
+      every check works on the free tier. Also read from the AGENT_READY_KEY
+      environment variable. Buy one at https://mitosislabs.ai/agent-ready
     required: false
     default: ''
 
@@ -151,6 +161,18 @@ outputs:
   sandbox:
     description: 'Which sandbox actually ran the fixers: tenki or runner.'
     value: ${{ steps.agent-ready.outputs.sandbox }}
+  plan:
+    description: 'Billing plan the scan was metered against (free, pro, team). Empty when unmetered.'
+    value: ${{ steps.agent-ready.outputs.plan }}
+  quota-used:
+    description: 'Scans used this month. Empty when unmetered.'
+    value: ${{ steps.agent-ready.outputs.quota-used }}
+  quota-limit:
+    description: 'Scans included this month. Empty when unmetered.'
+    value: ${{ steps.agent-ready.outputs.quota-limit }}
+  quota-remaining:
+    description: 'Scans left this month. Empty when unmetered.'
+    value: ${{ steps.agent-ready.outputs.quota-remaining }}
 
 runs:
   using: 'composite'

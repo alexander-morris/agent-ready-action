@@ -15,7 +15,7 @@ const { runLocal } = require('./sandbox/local');
 const tenki = require('./sandbox/tenki');
 const report = require('./report');
 const gh = require('./github');
-const { DEFAULT_SCANNER } = require('./scan');
+const { DEFAULT_SCANNER, QuotaExceededError, PUBLIC_SCANNER } = require('./scan');
 
 function input(name, dflt = '') {
   const v = process.env['INPUT_' + name.toUpperCase().replace(/-/g, '_')];
@@ -58,9 +58,26 @@ function readOptions() {
     commitMessage: input('commit-message', 'chore(agent-ready): add agent-readiness artifacts'),
     githubToken: input('github-token', process.env.GITHUB_TOKEN || ''),
     scannerUrl: input('scanner-url', DEFAULT_SCANNER),
-    licenseKey: input('license-key'),
+    licenseKey: input('license-key', process.env.AGENT_READY_KEY || ''),
     actionPath: process.env.AGENT_READY_ACTION_PATH || path.resolve(__dirname, '..'),
+    // Recorded by the metered endpoint so a run can be attributed to an account
+    // and shown in score history. Nothing here is sent to the public checker.
+    context: {
+      repository: process.env.GITHUB_REPOSITORY || '',
+      runId: process.env.GITHUB_RUN_ID || '',
+      actionVersion: actionVersion(),
+      sandbox: 'runner',
+    },
   };
+}
+
+/** Version from our own package.json, for usage attribution. */
+function actionVersion() {
+  try {
+    return require('../package.json').version || 'unknown';
+  } catch {
+    return 'unknown';
+  }
 }
 
 /** Pick the sandbox and run the fixers there. */
@@ -186,6 +203,10 @@ async function main() {
   setOutput('report', mdPath);
   setOutput('json', jsonPath);
   setOutput('sandbox', result.sandbox || 'runner');
+  setOutput('plan', (result.meta && result.meta.plan) || '');
+  setOutput('quota-used', result.meta ? result.meta.used : '');
+  setOutput('quota-limit', result.meta ? result.meta.limit : '');
+  setOutput('quota-remaining', result.meta ? result.meta.remaining : '');
 
   log('');
   log(report.oneLine(result));
@@ -201,6 +222,22 @@ async function main() {
 }
 
 main().catch((e) => {
+  if (e instanceof QuotaExceededError) {
+    const q = e.quota || {};
+    const lines = [
+      `Agent Readiness scan quota used up: ${q.used}/${q.limit} for ${q.period} on the ${q.planName || q.plan} plan.`,
+      '',
+      'Three ways forward:',
+      q.upgradeUrl ? `  1. Upgrade for more scans and score history: ${q.upgradeUrl}` : null,
+      `  2. Run fewer scans — a weekly schedule uses about 8 a month with sandbox verification on.`,
+      `  3. Keep going unmetered against the public checker by adding to your workflow:`,
+      `       scanner-url: ${PUBLIC_SCANNER}`,
+    ].filter(Boolean);
+    for (const line of lines) console.log(line);
+    appendSummary(['## Agent Readiness', '', ...lines.map((l) => (l ? l : ''))].join('\n'));
+    console.log(`::error::${lines[0]}`);
+    process.exit(1);
+  }
   console.log(`::error::${e.message}`);
   if (process.env.RUNNER_DEBUG === '1' && e.stack) console.log(e.stack);
   process.exit(1);

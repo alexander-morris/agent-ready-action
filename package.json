@@ -1,18 +1,44 @@
 {
   "name": "agent-ready-action",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "Score your site's AI Agent Readiness (Cloudflare / isitagentready.com) and auto-open a PR that fixes what's failing — generated inside an isolated Tenki sandbox.",
   "main": "src/index.js",
-  "bin": { "agent-ready": "bin/agent-ready.js" },
+  "bin": {
+    "agent-ready": "bin/agent-ready.js"
+  },
   "scripts": {
     "test": "node test/run.js",
     "scan": "node bin/agent-ready.js scan",
     "fix": "node bin/agent-ready.js fix"
   },
-  "engines": { "node": ">=20" },
-  "keywords": ["github-action","cloudflare","agent-readiness","ai-agents","mcp","llms-txt","robots-txt","tenki","seo","aeo"],
-  "license": "MIT",
-  "repository": { "type": "git", "url": "git+https://github.com/alexander-morris/agent-ready-action.git" },
-  "files": ["src","bin","action.yml","README.md","LICENSE"],
+  "engines": {
+    "node": ">=20"
+  },
+  "keywords": [
+    "github-action",
+    "cloudflare",
+    "agent-readiness",
+    "ai-agents",
+    "mcp",
+    "llms-txt",
+    "robots-txt",
+    "tenki",
+    "seo",
+    "aeo"
+  ],
+  "license": "PolyForm-Shield-1.0.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/alexander-morris/agent-ready-action.git"
+  },
+  "files": [
+    "src",
+    "bin",
+    "action.yml",
+    "README.md",
+    "LICENSE",
+    "LICENSE-HISTORY.md",
+    "PRICING.md"
+  ],
   "dependencies": {}
 }

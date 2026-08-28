@@ -201,6 +201,11 @@ mkdir -p .github/workflows
   echo "          # open | balanced | closed — what AI crawlers may do with your content."
   echo "          ai-policy: balanced"
   echo
+  echo "          # Optional. The free tier covers 50 scans a month per GitHub org;"
+  echo "          # a key raises that and adds score history and drift alerts."
+  echo "          # https://mitosislabs.ai/agent-ready"
+  echo "          license-key: \${{ secrets.AGENT_READY_KEY }}"
+  echo
   echo "          # Fill these in to publish real capability cards. Left empty on purpose:"
   echo "          # advertising an MCP server or API you do not run makes agents fail"
   echo "          # against your site, so nothing is generated until you say it exists."
@@ -250,4 +255,7 @@ echo "  3. Push, then run it:     gh workflow run 'Agent Ready'"
 echo
 dim "Want to see the score before committing anything?"
 echo "  npx --yes github:alexander-morris/agent-ready-action scan $URL"
+echo
+dim "The free tier covers 50 scans a month per GitHub org — no signup needed."
+dim "More scans, score history and drift alerts: https://mitosislabs.ai/agent-ready"
 echo

@@ -301,6 +301,8 @@ async function main() {
     assert.match(md, /Tenki/);
   });
 
+  await meteringTests();
+
   console.log(`\n${passed} passed, ${failures.length} failed`);
   if (failures.length) {
     for (const [name, e] of failures) console.error(`\n${name}\n${e.stack}`);
@@ -319,3 +321,144 @@ function get(port, pathname, headers = {}) {
 }
 
 main().catch((e) => { console.error(e); process.exit(1); });
+
+/**
+ * Metering. These run against a local stand-in for both endpoints, so no network
+ * and no secrets — the behaviour under test is entirely ours.
+ */
+async function meteringTests() {
+  console.log('\nmetering');
+
+  const SCAN_OK = {
+    level: 2,
+    levelName: 'Bot-Aware',
+    checks: { discoverability: { robotsTxt: { status: 'pass', message: 'ok' } } },
+  };
+
+  /** A fake scanner. `plan(request)` decides what each call returns. */
+  async function withScanner(plan, fn) {
+    const seen = [];
+    const server = http.createServer((req, res) => {
+      let body = '';
+      req.on('data', (c) => { body += c; });
+      req.on('end', () => {
+        const parsed = body ? JSON.parse(body) : {};
+        seen.push({ url: req.url, headers: req.headers, body: parsed });
+        const out = plan({ path: req.url, body: parsed, headers: req.headers, calls: seen.length });
+        res.writeHead(out.status, { 'content-type': 'application/json' });
+        res.end(JSON.stringify(out.body));
+      });
+    });
+    await new Promise((r) => server.listen(0, '127.0.0.1', r));
+    const port = server.address().port;
+
+    const prevMetered = process.env.AGENT_READY_METERED_SCANNER;
+    const prevPublic = process.env.AGENT_READY_PUBLIC_SCANNER;
+    process.env.AGENT_READY_METERED_SCANNER = `http://127.0.0.1:${port}/metered`;
+    process.env.AGENT_READY_PUBLIC_SCANNER = `http://127.0.0.1:${port}/public`;
+    delete require.cache[require.resolve('../src/scan')];
+    const scanModule = require('../src/scan');
+
+    try {
+      return await fn(scanModule, seen);
+    } finally {
+      server.close();
+      if (prevMetered === undefined) delete process.env.AGENT_READY_METERED_SCANNER;
+      else process.env.AGENT_READY_METERED_SCANNER = prevMetered;
+      if (prevPublic === undefined) delete process.env.AGENT_READY_PUBLIC_SCANNER;
+      else process.env.AGENT_READY_PUBLIC_SCANNER = prevPublic;
+      delete require.cache[require.resolve('../src/scan')];
+    }
+  }
+
+  await test('sends the license key and run context to the metered endpoint', async () => {
+    await withScanner(
+      () => ({ status: 200, body: { ...SCAN_OK, meta: { plan: 'pro', used: 3, limit: 5000, remaining: 4997 } } }),
+      async (scanModule, seen) => {
+        const result = await scanModule.scan('https://demo.test', {
+          scannerUrl: scanModule.METERED_SCANNER,
+          licenseKey: 'ar_live_' + 'a'.repeat(48),
+          context: { repository: 'octo/demo', runId: '42', actionVersion: '1.1.0', sandbox: 'runner' },
+        });
+        assert.strictEqual(result.level, 2);
+        assert.strictEqual(result.meta.plan, 'pro');
+
+        const call = seen[0];
+        assert.match(call.headers.authorization, /^Bearer ar_live_a+$/);
+        assert.strictEqual(call.body.repository, 'octo/demo');
+        assert.strictEqual(call.body.runId, '42');
+        assert.strictEqual(call.body.sandbox, 'runner');
+      },
+    );
+  });
+
+  await test('sends nothing but the url to the public checker', async () => {
+    await withScanner(
+      () => ({ status: 200, body: SCAN_OK }),
+      async (scanModule, seen) => {
+        await scanModule.scan('https://demo.test', {
+          scannerUrl: scanModule.PUBLIC_SCANNER,
+          licenseKey: 'ar_live_' + 'a'.repeat(48),
+          context: { repository: 'octo/demo' },
+        });
+        assert.deepStrictEqual(Object.keys(seen[0].body), ['url'], 'opting out must not leak run metadata');
+        assert.strictEqual(seen[0].headers.authorization, undefined, 'and must not send the key');
+      },
+    );
+  });
+
+  await test('a 402 is a hard stop, not a fallback', async () => {
+    await withScanner(
+      ({ path }) => {
+        if (path === '/metered') {
+          return {
+            status: 402,
+            body: { error: 'quota_exhausted', plan: 'free', used: 50, limit: 50, period: '2026-08', upgradeUrl: 'https://example.test/upgrade' },
+          };
+        }
+        return { status: 200, body: SCAN_OK };
+      },
+      async (scanModule, seen) => {
+        await assert.rejects(
+          () => scanModule.scan('https://demo.test', { scannerUrl: scanModule.METERED_SCANNER }),
+          (err) => {
+            assert.ok(err instanceof scanModule.QuotaExceededError);
+            assert.strictEqual(err.quota.used, 50);
+            assert.strictEqual(err.quota.upgradeUrl, 'https://example.test/upgrade');
+            return true;
+          },
+        );
+        assert.strictEqual(seen.length, 1, 'a 402 must not be retried');
+        assert.ok(!seen.some((c) => c.path === '/public'), 'and must not fall through to the public checker');
+      },
+    );
+  });
+
+  await test('a broken metering service falls back instead of breaking CI', async () => {
+    await withScanner(
+      ({ path }) => (path === '/metered'
+        ? { status: 503, body: { error: 'down' } }
+        : { status: 200, body: SCAN_OK }),
+      async (scanModule, seen) => {
+        const result = await scanModule.scan('https://demo.test', {
+          scannerUrl: scanModule.METERED_SCANNER,
+          retries: 0,
+        });
+        assert.strictEqual(result.level, 2, 'the run must still get a score');
+        assert.ok(seen.some((c) => c.url === '/public'), 'it must have fallen back to the public checker');
+      },
+    );
+  });
+
+  await test('the quota line renders in the report', () => {
+    const md = report.render({
+      url: 'https://demo.test',
+      meta: { plan: 'free', planName: 'Free', used: 48, limit: 50, remaining: 2, upgradeUrl: 'https://example.test/upgrade' },
+      before: { level: 2, levelName: 'Bot-Aware', passed: 6, failed: 14, neutral: 2, total: 22, raw: { checks: {} } },
+      applied: [], needsInput: [], advisories: [], written: [], sandbox: 'runner',
+    });
+    assert.match(md, /2 left/);
+    assert.match(md, /example\.test\/upgrade/);
+    assert.match(md, /isitagentready\.com\/api\/scan/, 'the opt-out must be stated, not hidden');
+  });
+}

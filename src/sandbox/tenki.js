@@ -183,9 +183,12 @@ async function runInTenki(opts, { actionPath, verify }) {
     execOrThrow(sid, `tar -xzf ${GUEST_HOME}/app.tar.gz -C ${APP} && rm -f ${GUEST_HOME}/app.tar.gz`);
 
     // Config for the guest run.
+    // The GitHub token never enters the VM — that is most of the point of
+    // running there. The license key does, because the scan inside the sandbox
+    // has to be metered against the right account; it grants nothing but scan
+    // quota, and the VM is the customer's own.
     const guestOpts = { ...opts, root: WORK, outDir: OUT };
     delete guestOpts.githubToken;
-    delete guestOpts.licenseKey;
     const configLocal = path.join(tmpDir, 'config.json');
     fs.writeFileSync(configLocal, JSON.stringify(guestOpts, null, 2));
     tenkiOrThrow(['sandbox', 'write', '--session', sid, '--path', `${GUEST_HOME}/config.json`, '--data-file', configLocal]);
@@ -226,7 +229,11 @@ async function runInTenki(opts, { actionPath, verify }) {
         log(`Preview URL: ${previewUrl}`);
         await sleep(4000);
         const { scan } = require('../scan');
-        const after = await scan(previewUrl, { scannerUrl: opts.scannerUrl });
+        const after = await scan(previewUrl, {
+          scannerUrl: opts.scannerUrl,
+          licenseKey: opts.licenseKey,
+          context: { ...(opts.context || {}), sandbox: 'tenki' },
+        });
         const { tally, levelName } = require('../scan');
         result.after = {
           level: after.level,

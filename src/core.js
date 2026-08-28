@@ -157,13 +157,19 @@ function buildAdvisories(checkIds, requirements) {
  */
 async function run(opts) {
   log(`Scanning ${opts.url} …`);
-  const before = await scan(opts.url, { scannerUrl: opts.scannerUrl });
+  const before = await scan(opts.url, {
+    scannerUrl: opts.scannerUrl,
+    licenseKey: opts.licenseKey,
+    context: opts.context,
+  });
   const counts = tally(before);
   log(`Level ${before.level} — ${levelName(before.level, before.levelName)} (${counts.passed} passing, ${counts.failed} failing)`);
 
   const out = {
     url: opts.url,
     scannedAt: before.scannedAt || new Date().toISOString(),
+    // Present only when the scan went through the metered endpoint.
+    meta: before.meta || null,
     before: { level: before.level, levelName: levelName(before.level, before.levelName), ...counts, raw: before },
     applied: [],
     needsInput: [],
